@@ -3,15 +3,14 @@ mod models;
 mod dtos;
 
 use axum::{
-    extract::{Multipart, State},
+    extract::{Multipart, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::post,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use models::*;
-use dtos::UploadResponse;
+use dtos::{UploadResponse, DocumentWithLatest, ListDocumentsResponse, ListDocumentsQuery};
 use serde::Serialize;
 use serde_json::Value;
 use sqlx::PgPool;
@@ -39,6 +38,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/upload", post(upload_file))
+        .route("/documents" , get(list_documents))
         .with_state(AppState { pool, upload_dir });
 
     let listener = TcpListener::bind("0.0.0.0:3000").await?;
@@ -47,11 +47,89 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn list_documents(
+    State(state): State<AppState>,
+    Query(params): Query<ListDocumentsQuery>,
+) -> Result<Json<ListDocumentsResponse>, (StatusCode, &'static str)> {
+    let page = params.page.unwrap_or(1).max(1);
+    let page_size = params.page_size.unwrap_or(20).min(100);
+    let offset = (page - 1) as i64 * page_size as i64;
+
+    // Filters
+    let title_filter = params.title.unwrap_or_default();
+    let category_filter = params.category;
+
+    // Count total
+    let total: (i64,) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)
+        FROM documents d
+        WHERE ($1 = '' OR d.title ILIKE '%' || $1 || '%')
+          AND ($2::text IS NULL OR d.category = $2)
+        "#
+    )
+    .bind(&title_filter)
+    .bind(&category_filter)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "count_failed"))?;
+
+    // Fetch page with latest version
+    let rows = sqlx::query_as::<_, DocumentWithLatest>(
+        r#"
+        WITH latest_versions AS (
+            SELECT DISTINCT ON (document_id)
+                document_id,
+                version_number,
+                file_name,
+                file_size,
+                mime_type,
+                created_at
+            FROM document_versions
+            ORDER BY document_id, version_number DESC
+        )
+        SELECT
+            d.id,
+            d.title,
+            d.category,
+            d.created_at,
+            d.updated_at,
+            lv.version_number AS latest_version_number,
+            lv.file_name AS latest_file_name,
+            lv.file_size AS latest_file_size,
+            lv.mime_type AS latest_mime_type,
+            lv.created_at AS latest_created_at
+        FROM documents d
+        LEFT JOIN latest_versions lv ON lv.document_id = d.id
+        WHERE ($1 = '' OR d.title ILIKE '%' || $1 || '%')
+          AND ($2::text IS NULL OR d.category = $2)
+        ORDER BY d.created_at DESC
+        LIMIT $3 OFFSET $4
+        "#
+    )
+    .bind(&title_filter)
+    .bind(&category_filter)
+    .bind(page_size as i64)
+    .bind(offset)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "query_failed"))?;
+
+    let resp = ListDocumentsResponse {
+        data: rows,
+        page,
+        page_size,
+        total: total.0,
+    };
+    Ok(Json(resp))
+}
+
 async fn upload_file(
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
     // Expect form fields:
+    // - document_id (optional; if provided, add new version to existing doc)
     // - title (text)
     // - category (optional text)
     // - file (binary)
@@ -60,7 +138,8 @@ async fn upload_file(
     //     * or a JSON object field named "metadata" (stringified JSON) e.g. {"owner":"alice"}
     //   e.g., meta_department=finance -> key=department, value=finance
 
-    let mut title: Option<String> = None;
+    let mut document_id: Option<Uuid> = None;
+    let mut title_opt: Option<String> = None;
     let mut category: Option<String> = None;
     let mut file_name: Option<String> = None;
     let mut file_bytes: Option<Vec<u8>> = None;
@@ -71,8 +150,22 @@ async fn upload_file(
     while let Ok(Some(field)) = multipart.next_field().await {
         let name = field.name().unwrap_or("").to_string();
         match name.as_str() {
+            "document_id" => {
+                if let Ok(text) = field.text().await {
+                    match Uuid::parse_str(text.trim()) {
+                        Ok(id) => document_id = Some(id),
+                        Err(_) => {
+                            return (
+                                StatusCode::BAD_REQUEST,
+                                "Invalid document_id (must be UUID)",
+                            )
+                                .into_response();
+                        }
+                    }
+                }
+            }
             "title" => {
-                title = field.text().await.ok();
+                title_opt = field.text().await.ok();
             }
             "category" => {
                 category = field.text().await.ok();
@@ -120,10 +213,6 @@ async fn upload_file(
         }
     }
 
-    let title = match title {
-        Some(t) if !t.is_empty() => t,
-        _ => return (StatusCode::BAD_REQUEST, "Missing title").into_response(),
-    };
     let file_bytes = match file_bytes {
         Some(b) => b,
         None => return (StatusCode::BAD_REQUEST, "Missing file").into_response(),
@@ -156,40 +245,107 @@ async fn upload_file(
         }
     };
 
-    // Insert document
-    let document = match sqlx::query_as::<_, Document>(
-        r#"
-        INSERT INTO documents (title, category)
-        VALUES ($1, $2)
-        RETURNING id, title, category, created_at, updated_at
-        "#,
-    )
-    .bind(&title)
-    .bind(&category)
-    .fetch_one(&mut *tx)
-    .await
-    {
-        Ok(doc) => doc,
-        Err(err) => {
-            eprintln!("Insert document failed: {err}");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to save document",
-            )
-                .into_response();
-        }
+    // Create new document or append to existing
+    let (document, next_version_number) = if let Some(doc_id) = document_id {
+        // Existing document: ensure it exists
+        let doc = match sqlx::query_as::<_, Document>(
+            r#"
+            SELECT id, title, category, created_at, updated_at
+            FROM documents
+            WHERE id = $1
+            "#,
+        )
+        .bind(doc_id)
+        .fetch_optional(&mut *tx)
+        .await
+        {
+            Ok(Some(d)) => d,
+            Ok(None) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "document_id not found",
+                )
+                    .into_response();
+            }
+            Err(err) => {
+                eprintln!("Fetch document failed: {err}");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to load document",
+                )
+                    .into_response();
+            }
+        };
+
+        // Next version number
+        let next_version: i32 = match sqlx::query_scalar::<_, Option<i32>>(
+            r#"
+            SELECT MAX(version_number) + 1
+            FROM document_versions
+            WHERE document_id = $1
+            "#,
+        )
+        .bind(doc_id)
+        .fetch_one(&mut *tx)
+        .await
+        {
+            Ok(Some(v)) => v,
+            Ok(None) => 1,
+            Err(err) => {
+                eprintln!("Compute next version failed: {err}");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to compute version",
+                )
+                    .into_response();
+            }
+        };
+
+        (doc, next_version)
+    } else {
+        // New document: require title
+        let title = match title_opt {
+            Some(t) if !t.is_empty() => t,
+            _ => return (StatusCode::BAD_REQUEST, "Missing title").into_response(),
+        };
+
+        let doc = match sqlx::query_as::<_, Document>(
+            r#"
+            INSERT INTO documents (title, category)
+            VALUES ($1, $2)
+            RETURNING id, title, category, created_at, updated_at
+            "#,
+        )
+        .bind(&title)
+        .bind(&category)
+        .fetch_one(&mut *tx)
+        .await
+        {
+            Ok(d) => d,
+            Err(err) => {
+                eprintln!("Insert document failed: {err}");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to save document",
+                )
+                    .into_response();
+            }
+        };
+
+        (doc, 1)
     };
 
-    // Insert version
+    // Insert version with computed version number
     let version = match sqlx::query_as::<_, DocumentVersion>(
         r#"
         INSERT INTO document_versions 
         (document_id, version_number, file_name, file_path, file_size, mime_type, checksum)
-        VALUES ($1, 1, $2, $3, $4, $5, $6)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id, document_id, version_number, file_name, file_path, file_size, mime_type, checksum, created_at
         "#,
     )
     .bind(document.id)
+    .bind(next_version_number)
     .bind(&file_name)
     .bind(stored_path.to_string_lossy())
     .bind(file_size)
