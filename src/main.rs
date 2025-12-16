@@ -1,6 +1,7 @@
 #![allow(unused_imports, unused_variables, non_snake_case, unused_mut, dead_code)]
 mod models;
 mod dtos;
+mod error;
 
 use axum::{
     extract::{Multipart, Query, State},
@@ -17,6 +18,8 @@ use sqlx::PgPool;
 use std::{collections::HashMap, fs, path::PathBuf};
 use tokio::net::TcpListener;
 use uuid::Uuid;
+
+use crate::error::AppError;
 
 #[derive(Clone)]
 struct AppState {
@@ -50,7 +53,7 @@ async fn main() -> anyhow::Result<()> {
 async fn list_documents(
     State(state): State<AppState>,
     Query(params): Query<ListDocumentsQuery>,
-) -> Result<Json<ListDocumentsResponse>, (StatusCode, &'static str)> {
+) -> Result<Json<ListDocumentsResponse>, AppError> {
     let page = params.page.unwrap_or(1).max(1);
     let page_size = params.page_size.unwrap_or(20).min(100);
     let offset = (page - 1) as i64 * page_size as i64;
@@ -72,7 +75,7 @@ async fn list_documents(
     .bind(&category_filter)
     .fetch_one(&state.pool)
     .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "count_failed"))?;
+    .map_err(AppError::Db)?;
 
     // Fetch page with latest version
     let rows = sqlx::query_as::<_, DocumentWithLatest>(
@@ -113,7 +116,7 @@ async fn list_documents(
     .bind(offset)
     .fetch_all(&state.pool)
     .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "query_failed"))?;
+    .map_err(AppError::Db)?;
 
     let resp = ListDocumentsResponse {
         data: rows,
@@ -127,7 +130,7 @@ async fn list_documents(
 async fn upload_file(
     State(state): State<AppState>,
     mut multipart: Multipart,
-) -> impl IntoResponse {
+) -> Result<Json<UploadResponse>, AppError> {
     // Expect form fields:
     // - document_id (optional; if provided, add new version to existing doc)
     // - title (text)
@@ -155,11 +158,7 @@ async fn upload_file(
                     match Uuid::parse_str(text.trim()) {
                         Ok(id) => document_id = Some(id),
                         Err(_) => {
-                            return (
-                                StatusCode::BAD_REQUEST,
-                                "Invalid document_id (must be UUID)",
-                            )
-                                .into_response();
+                            return Err(AppError::BadRequest("Invalid document_id (must be UUID)"));
                         }
                     }
                 }
@@ -191,11 +190,7 @@ async fn upload_file(
                             }
                         }
                         _ => {
-                            return (
-                                StatusCode::BAD_REQUEST,
-                                "Invalid metadata JSON; expected an object of string values",
-                            )
-                                .into_response();
+                            return Err(AppError::BadRequest("Invalid metadata JSON; expected an object of string values"));
                         }
                     }
                 }
@@ -215,7 +210,7 @@ async fn upload_file(
 
     let file_bytes = match file_bytes {
         Some(b) => b,
-        None => return (StatusCode::BAD_REQUEST, "Missing file").into_response(),
+        None => return Err(AppError::BadRequest("Missing file")),
     };
     let file_name = file_name.unwrap_or_else(|| "upload.bin".to_string());
 
@@ -224,31 +219,18 @@ async fn upload_file(
     let stored_path = state.upload_dir.join(&stored_file_name);
     if let Err(err) = fs::write(&stored_path, &file_bytes) {
         eprintln!("Failed to write file: {err}");
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to store file",
-        )
-            .into_response();
+        return Err(AppError::Io(err));
     }
 
     let file_size = file_bytes.len() as i64;
     let checksum = None::<String>;
 
-    let mut tx = match state.pool.begin().await {
-        Ok(tx) => tx,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database unavailable",
-            )
-                .into_response()
-        }
-    };
+    let mut tx = state.pool.begin().await?; 
 
     // Create new document or append to existing
     let (document, next_version_number) = if let Some(doc_id) = document_id {
         // Existing document: ensure it exists
-        let doc = match sqlx::query_as::<_, Document>(
+        let doc_opt = sqlx::query_as::<_, Document>(
             r#"
             SELECT id, title, category, created_at, updated_at
             FROM documents
@@ -257,60 +239,35 @@ async fn upload_file(
         )
         .bind(doc_id)
         .fetch_optional(&mut *tx)
-        .await
-        {
-            Ok(Some(d)) => d,
-            Ok(None) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    "document_id not found",
-                )
-                    .into_response();
-            }
-            Err(err) => {
-                eprintln!("Fetch document failed: {err}");
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to load document",
-                )
-                    .into_response();
-            }
+        .await?;
+
+        let doc = match doc_opt {
+            Some(d) => d,
+            None => return Err(AppError::BadRequest("document_id not found")),
         };
 
         // Next version number
-        let next_version: i32 = match sqlx::query_scalar::<_, Option<i32>>(
-            r#"
-            SELECT MAX(version_number) + 1
-            FROM document_versions
-            WHERE document_id = $1
-            "#,
-        )
-        .bind(doc_id)
-        .fetch_one(&mut *tx)
-        .await
-        {
-            Ok(Some(v)) => v,
-            Ok(None) => 1,
-            Err(err) => {
-                eprintln!("Compute next version failed: {err}");
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to compute version",
-                )
-                    .into_response();
-            }
-        };
+        let next_version_opt: Option<i32> = sqlx::query_scalar::<_, Option<i32>>(r#"
+                SELECT MAX(version_number) + 1
+                FROM document_versions
+                WHERE document_id = $1
+                "#,
+            )
+            .bind(doc_id)
+            .fetch_one(&mut *tx)
+            .await?; // DB error -> AppError::Db
+
+        let next_version = next_version_opt.unwrap_or(1);
 
         (doc, next_version)
     } else {
         // New document: require title
         let title = match title_opt {
             Some(t) if !t.is_empty() => t,
-            _ => return (StatusCode::BAD_REQUEST, "Missing title").into_response(),
+            _ => return Err(AppError::BadRequest("Missing title")),
         };
 
-        let doc = match sqlx::query_as::<_, Document>(
-            r#"
+        let doc = sqlx::query_as::<_, Document>(r#"
             INSERT INTO documents (title, category)
             VALUES ($1, $2)
             RETURNING id, title, category, created_at, updated_at
@@ -319,25 +276,12 @@ async fn upload_file(
         .bind(&title)
         .bind(&category)
         .fetch_one(&mut *tx)
-        .await
-        {
-            Ok(d) => d,
-            Err(err) => {
-                eprintln!("Insert document failed: {err}");
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to save document",
-                )
-                    .into_response();
-            }
+        .await?;
+            (doc, 1)
         };
 
-        (doc, 1)
-    };
-
     // Insert version with computed version number
-    let version = match sqlx::query_as::<_, DocumentVersion>(
-        r#"
+    let version = sqlx::query_as::<_, DocumentVersion>(r#"
         INSERT INTO document_versions 
         (document_id, version_number, file_name, file_path, file_size, mime_type, checksum)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -352,53 +296,36 @@ async fn upload_file(
     .bind(&mime_type)
     .bind(&checksum)
     .fetch_one(&mut *tx)
-    .await
-    {
-        Ok(v) => v,
-        Err(err) => {
-            eprintln!("Insert version failed: {err}");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to save document version",
-            )
-                .into_response();
-        }
-    };
+    .await?;
 
     let metadata_count = metadata.len();
 
     // Insert metadata entries (optional). Upsert on (document_id, key)
     for (meta_key, meta_value) in metadata.into_iter() {
-        if let Err(err) = sqlx::query(
-            r#"
-            INSERT INTO document_metadata (document_id, key, value)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (document_id, key)
-            DO UPDATE SET value = EXCLUDED.value
-            "#,
-        )
-        .bind(document.id)
-        .bind(&meta_key)
-        .bind(&meta_value)
-        .execute(&mut *tx)
-        .await
-        {
-            eprintln!("Insert metadata failed (key={}): {err}", meta_key);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to save metadata",  
+        sqlx::query(r#"
+                INSERT INTO document_metadata (document_id, key, value)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (document_id, key)
+                DO UPDATE SET value = EXCLUDED.value
+                "#,
             )
-                .into_response();
-        }
+            .bind(document.id)
+            .bind(&meta_key)
+            .bind(&meta_value)
+            .execute(&mut *tx)
+            .await
+            .map_err(|err| {
+                eprintln!("Insert metadata failed (key={}): {err}", meta_key);
+                AppError::Db(err)
+            })?;
     }
 
-    if tx.commit().await.is_err() {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to finalize save",
-        )
-            .into_response();
-    }
+    tx.commit()
+        .await
+        .map_err(|err| {
+            eprintln!("Failed to finalize save: {err}");
+            AppError::Db(err)
+        })?;
 
     let response = UploadResponse {
         document_id: document.id,
@@ -414,5 +341,9 @@ async fn upload_file(
         ),
     };
 
-    (StatusCode::OK, Json(response)).into_response()
+    Ok(Json(response))
 }
+
+
+// add a delete method for old versions and also restructure the code
+// add logger
