@@ -2,6 +2,7 @@
 mod models;
 mod dtos;
 mod error;
+mod state;
 
 use axum::{
     extract::{Multipart, Query, State},
@@ -20,12 +21,7 @@ use tokio::net::TcpListener;
 use uuid::Uuid;
 
 use crate::error::AppError;
-
-#[derive(Clone)]
-struct AppState {
-    pool: PgPool,
-    upload_dir: PathBuf,
-}
+use state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
