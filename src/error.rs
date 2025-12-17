@@ -2,6 +2,7 @@ use axum::{http::StatusCode,response::{IntoResponse,Response},Json};
 
 use serde::Serialize;
 use thiserror::Error;
+use tracing::error;
 
 #[derive(Debug,Error)]
 pub enum AppError {
@@ -35,9 +36,16 @@ struct ErrorBody {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let status = match self {
-            AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
-            AppError::NotFound(_) => StatusCode::NOT_FOUND,
+            AppError::BadRequest(msg) => {
+                tracing::warn!(message = %msg, "Bad request");
+                StatusCode::BAD_REQUEST
+            },  
+            AppError::NotFound(msg) => {
+                tracing::info!(message = %msg, "Resource not found"); 
+                StatusCode::NOT_FOUND
+            },
             AppError::Db(_) | AppError::Io(_) | AppError::Env(_) | AppError::Other(_) => {
+                error!(error = ?self, "Internal server error"); 
                 StatusCode::INTERNAL_SERVER_ERROR
             }
         };

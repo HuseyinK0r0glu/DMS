@@ -5,6 +5,7 @@ use crate::{state::AppState, dtos::UploadResponse, error::AppError, models::{Doc
 use uuid::Uuid;
 use serde_json::Value;
 use std::{collections::HashMap, fs};
+use tracing::{info, debug, warn};
 
 pub fn routes() -> Router<AppState> {
     Router::new().route("/upload", post(upload_file))
@@ -14,6 +15,8 @@ async fn upload_file(
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, AppError> {
+    info!("File upload request received");
+
     // Expect form fields:
     // - document_id (optional; if provided, add new version to existing doc)
     // - title (text)
@@ -93,25 +96,36 @@ async fn upload_file(
 
     let file_bytes = match file_bytes {
         Some(b) => b,
-        None => return Err(AppError::BadRequest("Missing file")),
+        None => {
+            warn!("File upload request missing file field");
+            return Err(AppError::BadRequest("Missing file"));
+        }
     };
     let file_name = file_name.unwrap_or_else(|| "upload.bin".to_string());
 
     // Persist file
     let stored_file_name = format!("{}_{}", Uuid::new_v4(), file_name);
     let stored_path = state.upload_dir.join(&stored_file_name);
+    info!(
+        file_name = %file_name,
+        file_size = file_bytes.len(),
+        stored_path = %stored_path.display(),
+        "Saving file to disk"
+    );
     if let Err(err) = fs::write(&stored_path, &file_bytes) {
-        eprintln!("Failed to write file: {err}");
+        warn!(error = ?err, "Failed to write file to disk");
         return Err(AppError::Io(err));
     }
 
     let file_size = file_bytes.len() as i64;
     let checksum = None::<String>;
 
+    debug!("Starting database transaction");
     let mut tx = state.pool.begin().await?; 
 
     // Create new document or append to existing
     let (document, next_version_number) = if let Some(doc_id) = document_id {
+        debug!(document_id = %doc_id, "Adding new version to existing document");
         // Existing document: ensure it exists
         let doc_opt = sqlx::query_as::<_, Document>(
             r#"
@@ -126,7 +140,10 @@ async fn upload_file(
 
         let doc = match doc_opt {
             Some(d) => d,
-            None => return Err(AppError::BadRequest("document_id not found")),
+            None => {
+                warn!(document_id = %doc_id, "Document not found for version upload");
+                return Err(AppError::BadRequest("document_id not found"));
+            }
         };
 
         // Next version number
@@ -146,8 +163,14 @@ async fn upload_file(
     } else {
         // New document: require title
         let title = match title_opt {
-            Some(t) if !t.is_empty() => t,
-            _ => return Err(AppError::BadRequest("Missing title")),
+            Some(t) if !t.is_empty() => {
+                debug!(title = %t, category = ?category, "Creating new document");
+                t
+            }
+            _ => {
+                warn!("File upload request missing title field");
+                return Err(AppError::BadRequest("Missing title"));
+            }
         };
 
         let doc = sqlx::query_as::<_, Document>(r#"
@@ -198,15 +221,16 @@ async fn upload_file(
             .execute(&mut *tx)
             .await
             .map_err(|err| {
-                eprintln!("Insert metadata failed (key={}): {err}", meta_key);
+                warn!(error = ?err, meta_key = %meta_key, "Failed to insert metadata");
                 AppError::Db(err)
             })?;
     }
 
+    debug!("Committing database transaction");
     tx.commit()
         .await
         .map_err(|err| {
-            eprintln!("Failed to finalize save: {err}");
+            warn!(error = ?err, "Failed to commit transaction");
             AppError::Db(err)
         })?;
 
@@ -223,6 +247,14 @@ async fn upload_file(
             }
         ),
     };
+
+    info!(
+        document_id = %document.id,
+        version_id = %version.id,
+        version_number = next_version_number,
+        metadata_count = metadata_count,
+        "File uploaded successfully"
+    );
 
     Ok(Json(response))
 }

@@ -9,11 +9,20 @@ use axum::Router;
 use sqlx::PgPool;
 use std::{fs, path::PathBuf};
 use tokio::net::TcpListener;
+use tracing_subscriber;
 
 use state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+
+    tracing_subscriber::fmt()
+    .with_env_filter(
+        tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| "rust_dms=debug,axum=info".into())
+    )
+    .init();
+
     dotenvy::dotenv().ok();
     let database_url = std::env::var("DATABASE_URL")
         .map_err(|_| anyhow::anyhow!("DATABASE_URL is not set"))?;

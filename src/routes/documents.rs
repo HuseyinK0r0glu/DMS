@@ -2,6 +2,7 @@ use axum::{routing::get, Router};
 use axum::extract::{Query, State};
 use axum::Json;
 use crate::{state::AppState, dtos::{ListDocumentsQuery, ListDocumentsResponse, DocumentWithLatest}, error::AppError};
+use tracing::{info, debug};
 
 pub fn routes() -> Router<AppState> {
     Router::new().route("/documents", get(list_documents))
@@ -18,6 +19,14 @@ async fn list_documents(
     // Filters
     let title_filter = params.title.unwrap_or_default();
     let category_filter = params.category;
+
+    debug!(
+        page = page,
+        page_size = page_size,
+        title_filter = %title_filter,
+        category_filter = ?category_filter,
+        "Listing documents"
+    );
 
     // Count total
     let total: (i64,) = sqlx::query_as(
@@ -81,5 +90,14 @@ async fn list_documents(
         page_size,
         total: total.0,
     };
+
+    info!(
+        total = total.0,
+        returned = resp.data.len(),
+        page = page,
+        page_size = page_size,
+        "Documents retrieved successfully"
+    );
+
     Ok(Json(resp))
 }
