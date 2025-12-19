@@ -53,6 +53,32 @@ CREATE INDEX IF NOT EXISTS idx_metadata_document_id
     ON document_metadata(document_id);
 
 -- ==========================================
+--  FOLDERS TABLE
+-- ==========================================
+
+CREATE TABLE IF NOT EXISTS folders (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(100) UNIQUE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
+--  DOCUMENT_FOLDERS TABLE (Many-to-Many)
+-- ==========================================
+
+CREATE TABLE IF NOT EXISTS document_folders (
+    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    folder_id UUID NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+    PRIMARY KEY (document_id, folder_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_document_folders_document_id 
+    ON document_folders(document_id);
+
+CREATE INDEX IF NOT EXISTS idx_document_folders_folder_id 
+    ON document_folders(folder_id);
+
+-- ==========================================
 --  TRIGGER: update updated_at column
 -- ==========================================
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -67,3 +93,13 @@ $$ language 'plpgsql';
 CREATE TRIGGER update_documents_updated_at 
 BEFORE UPDATE ON documents
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ==========================================
+--  SEED DEFAULT FOLDERS
+-- ==========================================
+
+INSERT INTO folders (name) VALUES
+    ('Finance'),
+    ('Reports'),
+    ('Others')
+ON CONFLICT (name) DO NOTHING;
