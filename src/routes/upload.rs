@@ -103,19 +103,49 @@ async fn upload_file(
     };
     let file_name = file_name.unwrap_or_else(|| "upload.bin".to_string());
 
-    // Persist file
-    let stored_file_name = format!("{}_{}", Uuid::new_v4(), file_name);
-    let stored_path = state.upload_dir.join(&stored_file_name);
-    info!(
-        file_name = %file_name,
-        file_size = file_bytes.len(),
-        stored_path = %stored_path.display(),
-        "Saving file to disk"
-    );
-    if let Err(err) = fs::write(&stored_path, &file_bytes) {
-        warn!(error = ?err, "Failed to write file to disk");
-        return Err(AppError::Io(err));
-    }
+    // NOTE ABOUT STORAGE KEY STRATEGIES
+    //
+    // Old approach (random UUID file name), kept for reference:
+    //
+    // let stored_file_name = format!("{}_{}", Uuid::new_v4(), file_name);
+    //
+    // // Old direct filesystem approach:
+    // let stored_path = state.upload_dir.join(&stored_file_name);
+    // info!(
+    //     file_name = %file_name,
+    //     file_size = file_bytes.len(),
+    //     stored_path = %stored_path.display(),
+    //     "Saving file to disk"
+    // );
+    // if let Err(err) = fs::write(&stored_path, &file_bytes) {
+    //     warn!(error = ?err, "Failed to write file to disk");
+    //     return Err(AppError::Io(err));
+    // }
+    //
+    // // New OpenDAL approach (before this change) wrote the file BEFORE we knew
+    // // the document_id and version_number:
+    // info!(
+    //     file_name = %file_name,
+    //     file_size = file_bytes.len(),
+    //     stored_key = %stored_file_name,
+    //     "Saving file via OpenDAL"
+    // );
+    // state
+    //     .storage
+    //     .write(&stored_file_name, file_bytes.clone())
+    //     .await?;
+    // let stored_path = stored_file_name.clone();
+    //
+    // NEW APPROACH (what you asked for):
+    // ---------------------------------
+    // We want storage keys like:
+    //   {document_id}/v{version_number}
+    // e.g.:
+    //   47cc9638-9751-469e-943b-d8821ef8f00c/v2
+    //
+    // To do that we must FIRST know document.id and next_version_number.
+    // So we delay the OpenDAL write until AFTER we decide whether we are
+    // creating a new document or appending a new version.
 
     let file_size = file_bytes.len() as i64;
     let checksum = None::<String>;
@@ -186,6 +216,21 @@ async fn upload_file(
             (doc, 1)
         };
 
+    // Now that we know document.id and next_version_number, build the storage key.
+    // Example key: "{document_id}/v{version_number}"
+    let stored_path = format!("{}/v{}", document.id, next_version_number);
+
+    info!(
+        file_name = %file_name,
+        file_size = file_bytes.len(),
+        stored_key = %stored_path,
+        "Saving file via OpenDAL using document/version-based key"
+    );
+    state
+        .storage
+        .write(&stored_path, file_bytes.clone())
+        .await?;
+
     // Insert version with computed version number
     let version = sqlx::query_as::<_, DocumentVersion>(r#"
         INSERT INTO document_versions 
@@ -197,7 +242,9 @@ async fn upload_file(
     .bind(document.id)
     .bind(next_version_number)
     .bind(&file_name)
-    .bind(stored_path.to_string_lossy())
+    // `stored_path` is the OpenDAL key (e.g., "{document_id}/v{version_number}")
+    // In the old filesystem-based code this was a full path on disk.
+    .bind(&stored_path)
     .bind(file_size)
     .bind(&mime_type)
     .bind(&checksum)
@@ -237,7 +284,10 @@ async fn upload_file(
     let response = UploadResponse {
         document_id: document.id,
         version_id: version.id,
-        stored_path: stored_path.to_string_lossy().to_string(),
+        // In the old implementation this was a filesystem path:
+        // stored_path: stored_path.to_string_lossy().to_string(),
+        // Now we store the OpenDAL key (relative path) instead.
+        stored_path: stored_path.to_string(),
         metadata_message: format!(
             "Inserted/updated {metadata_count} metadata entries{}",
             if metadata_count > 0 {

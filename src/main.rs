@@ -33,7 +33,20 @@ async fn main() -> anyhow::Result<()> {
     let upload_dir = PathBuf::from("uploads");
     fs::create_dir_all(&upload_dir)?;
 
-    let state = AppState { pool, upload_dir };
+    // Build OpenDAL operator for local filesystem storage rooted at `uploads/`.
+    //
+    // Old manual filesystem approach:
+    // let stored_file_name = format!("{}_{}", Uuid::new_v4(), file_name);
+    // let stored_path = upload_dir.join(&stored_file_name);
+    // fs::write(&stored_path, &file_bytes)?;
+    //
+    // New approach: use OpenDAL `Operator` with an FS service.
+    let mut builder = opendal::services::Fs::default();
+    // Use the uploads directory as the root for all storage operations.
+    builder = builder.root(&upload_dir.to_string_lossy());
+    let storage = opendal::Operator::new(builder)?.finish();
+
+    let state = AppState { pool, upload_dir, storage };
     let app = routes::router(state);
 
     let listener = TcpListener::bind("0.0.0.0:3000").await?;

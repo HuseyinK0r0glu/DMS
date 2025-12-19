@@ -1,12 +1,11 @@
-use axum::{http::StatusCode,response::{IntoResponse,Response},Json};
+use axum::{http::StatusCode, response::{IntoResponse, Response}, Json};
 
 use serde::Serialize;
 use thiserror::Error;
 use tracing::error;
 
-#[derive(Debug,Error)]
+#[derive(Debug, Error)]
 pub enum AppError {
-
     #[error("bad request: {0}")]
     BadRequest(&'static str),
 
@@ -21,6 +20,9 @@ pub enum AppError {
 
     #[error("env error: {0}")]
     Env(#[from] std::env::VarError),
+    
+    #[error("storage error: {0}")]
+    Storage(#[from] opendal::Error),
 
     #[error("other error: {0}")]
     Other(#[from] anyhow::Error),
@@ -39,13 +41,17 @@ impl IntoResponse for AppError {
             AppError::BadRequest(msg) => {
                 tracing::warn!(message = %msg, "Bad request");
                 StatusCode::BAD_REQUEST
-            },  
+            }
             AppError::NotFound(msg) => {
-                tracing::info!(message = %msg, "Resource not found"); 
+                tracing::info!(message = %msg, "Resource not found");
                 StatusCode::NOT_FOUND
-            },
-            AppError::Db(_) | AppError::Io(_) | AppError::Env(_) | AppError::Other(_) => {
-                error!(error = ?self, "Internal server error"); 
+            }
+            AppError::Db(_)
+            | AppError::Io(_)
+            | AppError::Env(_)
+            | AppError::Storage(_)
+            | AppError::Other(_) => {
+                error!(error = ?self, "Internal server error");
                 StatusCode::INTERNAL_SERVER_ERROR
             }
         };
