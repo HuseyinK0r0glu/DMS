@@ -213,10 +213,66 @@ async fn upload_file(
         .bind(&category)
         .fetch_one(&mut *tx)
         .await?;
-            (doc, 1)
-        };
+        (doc, 1)
+    };
 
-    // Now that we know document.id and next_version_number, build the storage key.
+    //  FOLDER HIERARCHY MAPPING
+    // We map the document's category to a folder as follows:
+    // - "Finance" (any case)  -> Finance folder
+    // - "Report" / "Reports"  -> Reports folder
+    // - Any other non-empty   -> Others folder
+    // - None or empty         -> no folder link
+    //
+
+    let folder_name_opt: Option<&str> = category
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|name| {
+            let lower = name.to_lowercase();
+            match lower.as_str() {
+                "finance" => "Finance",
+                "report" | "reports" => "Reports",
+                _ => "Others",
+            }
+        });
+
+    if let Some(folder_name) = folder_name_opt {
+        debug!(
+            document_id = %document.id,
+            folder = folder_name,
+            "Linking document to folder"
+        );
+
+        let folder_id: Uuid = sqlx::query_scalar(
+            r#"
+            SELECT id
+            FROM folders
+            WHERE name = $1
+            "#,
+        )
+        .bind(folder_name)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO document_folders (document_id, folder_id)
+            VALUES ($1, $2)
+            ON CONFLICT (document_id, folder_id) DO NOTHING
+            "#,
+        )
+        .bind(document.id)
+        .bind(folder_id)
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        debug!(
+            document_id = %document.id,
+            "No folder mapping for this document (no or empty category)"
+        );
+    };
+
     // Example key: "{document_id}/v{version_number}"
     let stored_path = format!("{}/v{}", document.id, next_version_number);
 
