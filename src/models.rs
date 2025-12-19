@@ -102,3 +102,11 @@ pub struct NewDocumentMetadata {
     pub value: Option<String>,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct User {
+    pub id: uuid::Uuid,
+    pub username: String,
+    pub api_key: String,
+    pub role: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}

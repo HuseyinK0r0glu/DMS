@@ -4,6 +4,7 @@ mod dtos;
 mod error;
 mod state;
 mod routes;
+mod auth;
 
 use axum::Router;
 use sqlx::PgPool;

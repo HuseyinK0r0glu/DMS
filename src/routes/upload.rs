@@ -2,6 +2,7 @@ use axum::{routing::post, Router};
 use axum::extract::{Multipart, State};
 use axum::Json;
 use crate::{state::AppState, dtos::UploadResponse, error::AppError, models::{Document, DocumentVersion}};
+use crate::auth::{CurrentUser, check_permission, StorageAction};
 use uuid::Uuid;
 use serde_json::Value;
 use std::{collections::HashMap, fs};
@@ -13,9 +14,13 @@ pub fn routes() -> Router<AppState> {
 
 async fn upload_file(
     State(state): State<AppState>,
+    current_user: CurrentUser,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, AppError> {
-    info!("File upload request received");
+    info!(user_id = %current_user.id, username = %current_user.username, role = %current_user.role, "File upload request received");
+    
+    // Check if user has write permission
+    check_permission(&current_user, StorageAction::Write)?;
 
     // Expect form fields:
     // - document_id (optional; if provided, add new version to existing doc)

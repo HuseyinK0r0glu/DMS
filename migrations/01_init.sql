@@ -38,6 +38,34 @@ CREATE INDEX IF NOT EXISTS idx_doc_versions_doc_id
     ON document_versions(document_id);
 
 -- ==========================================
+--  USERS TABLE (for API authentication & authorization)
+-- ==========================================
+--
+-- This table models application users that will be used for
+-- authorization of storage operations (read, write, delete, stat).
+--
+-- `role` is a simple text role for now:
+--   - 'admin'  : full access (read/write/delete/stat)
+--   - 'editor' : read + write
+--   - 'viewer' : read-only
+--
+-- `api_key` is a static token that clients can send in a header
+-- like `X-API-Key` to authenticate. In a real system you may want
+-- stronger auth (hashed keys, JWTs, etc.), but this is sufficient
+-- for development and Postman testing.
+
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    username VARCHAR(100) UNIQUE NOT NULL,
+    api_key VARCHAR(255) UNIQUE NOT NULL,
+    role VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_role 
+    ON users(role);
+
+-- ==========================================
 --  DOCUMENT METADATA TABLE (Dynamic Key-Value)
 -- ==========================================
 CREATE TABLE IF NOT EXISTS document_metadata (
@@ -103,3 +131,21 @@ INSERT INTO folders (name) VALUES
     ('Reports'),
     ('Others')
 ON CONFLICT (name) DO NOTHING;
+
+-- ==========================================
+--  SEED SAMPLE USERS
+-- ==========================================
+--
+-- These are development users with hard-coded API keys that you can
+-- use from Postman or other clients. Example usage:
+--   X-API-Key: admin-key-123
+--
+-- In production you would want to generate and store secure keys,
+-- and never commit them to source control.
+
+INSERT INTO users (username, api_key, role) VALUES
+    ('admin_user',  'admin-key-123',  'admin'),
+    ('editor_user', 'editor-key-123', 'editor'),
+    ('viewer_user', 'viewer-key-123', 'viewer'),
+    ('unauthorized_user', 'unauthorized-key-123', 'unauthorized')
+ON CONFLICT (api_key) DO NOTHING;

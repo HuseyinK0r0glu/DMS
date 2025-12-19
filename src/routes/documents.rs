@@ -9,6 +9,8 @@ use axum::http::StatusCode;
 use crate::{state::AppState,models::{Document, DocumentVersion}, dtos::{ListDocumentsQuery, ListDocumentsResponse, DocumentWithLatest, DownloadQuery}, error::AppError};
 use tracing::{info, debug};
 
+use crate::auth::{CurrentUser, check_permission, StorageAction};
+
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/documents", get(list_documents))
@@ -18,8 +20,14 @@ pub fn routes() -> Router<AppState> {
 async fn download_document(
     State(state) : State<AppState>,
     Path(document_id) : Path<Uuid>, 
-    Query(query) : Query<DownloadQuery>
+    Query(query) : Query<DownloadQuery>,
+    current_user: CurrentUser,
 ) -> Result<Response,AppError> {
+
+    info!(user_id = %current_user.id, username = %current_user.username, role = %current_user.role, "File download request received");
+    
+    // Check if user has read permission
+    check_permission(&current_user, StorageAction::Read)?;
 
     let version_number: i32 = if let Some(v) = query.version {
         v
