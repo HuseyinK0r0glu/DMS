@@ -16,6 +16,9 @@ pub struct Document {
     /// Optional category - VARCHAR(100) NULLABLE
     pub category: Option<String>,
     
+    /// Soft delete timestamp - NULL means not deleted, non-NULL means soft-deleted
+    pub deleted_at: Option<DateTime<Utc>>,
+    
     /// Creation timestamp - TIMESTAMP WITH TIME ZONE
     pub created_at: DateTime<Utc>,
     

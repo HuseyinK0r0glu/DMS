@@ -1,13 +1,13 @@
 use axum::response::Response;
 use uuid::Uuid;
-use axum::{routing::get, Router};
+use axum::{routing::{get, delete}, Router};
 use axum::extract::{Query, State,Path};
 use axum::Json;
 use axum::http::{header};
 use axum::body::Body;
 use axum::http::StatusCode;
 use crate::{state::AppState,models::{Document, DocumentVersion}, dtos::{ListDocumentsQuery, ListDocumentsResponse, DocumentWithLatest, DownloadQuery}, error::AppError};
-use tracing::{info, debug};
+use tracing::{info, debug, warn};
 
 use crate::auth::{CurrentUser, check_permission, StorageAction};
 
@@ -15,6 +15,8 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/documents", get(list_documents))
         .route("/documents/:id/content", get(download_document))
+        .route("/documents/:id", delete(soft_delete_document))
+        .route("/documents/:id/hard", delete(hard_delete_document))
 }
 
 async fn download_document(
@@ -28,6 +30,23 @@ async fn download_document(
     
     // Check if user has read permission
     check_permission(&current_user, StorageAction::Read)?;
+
+    // Check if document exists and is not soft-deleted
+    let document = sqlx::query_as::<_, Document>(
+        r#"
+        SELECT id, title, category, deleted_at, created_at, updated_at
+        FROM documents
+        WHERE id = $1 AND deleted_at IS NULL
+        "#,
+    )
+    .bind(document_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+
+    if document.is_none() {
+        return Err(AppError::NotFound("Document not found or has been deleted"));
+    }
 
     let version_number: i32 = if let Some(v) = query.version {
         v
@@ -103,6 +122,191 @@ async fn download_document(
 
 }
 
+/// Soft delete: Mark document as deleted (set deleted_at timestamp)
+/// Document and its data remain in database but are hidden from users
+pub async fn soft_delete_document(
+    State(state): State<AppState>,
+    current_user: CurrentUser,
+    Path(document_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    // Check delete permission (admin only)
+    check_permission(&current_user, StorageAction::Delete)?;
+
+    // Verify document exists and is not already soft-deleted
+    let document = sqlx::query_as::<_, Document>(
+        r#"
+        SELECT id, title, category, deleted_at, created_at, updated_at
+        FROM documents
+        WHERE id = $1
+        "#,
+    )
+    .bind(document_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+
+    let doc = match document {
+        Some(d) => {
+            if d.deleted_at.is_some() {
+                warn!(document_id = %document_id, "Document already soft-deleted");
+                return Err(AppError::BadRequest("Document is already deleted"));
+            }
+            info!(
+                user_id = %current_user.id,
+                username = %current_user.username,
+                document_id = %document_id,
+                title = %d.title,
+                "Soft deleting document"
+            );
+            d
+        }
+        None => {
+            warn!(document_id = %document_id, "Document not found for soft deletion");
+            return Err(AppError::NotFound("Document not found"));
+        }
+    };
+
+    // Update deleted_at timestamp
+    let rows_affected = sqlx::query(
+        r#"
+        UPDATE documents
+        SET deleted_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND deleted_at IS NULL
+        "#,
+    )
+    .bind(document_id)
+    .execute(&state.pool)
+    .await
+    .map_err(AppError::Db)?
+    .rows_affected();
+
+    if rows_affected == 0 {
+        return Err(AppError::BadRequest("Document is already deleted or not found"));
+    }
+
+    info!(
+        user_id = %current_user.id,
+        document_id = %document_id,
+        "Document soft-deleted successfully"
+    );
+
+    Ok(Json(serde_json::json!({
+        "message": "Document soft-deleted successfully",
+        "document_id": document_id,
+        "deleted_at": chrono::Utc::now(),
+    })))
+}
+
+/// Hard delete: Permanently delete document, all versions, metadata, folder links, and files from storage
+pub async fn hard_delete_document(
+    State(state): State<AppState>,
+    current_user: CurrentUser,
+    Path(document_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    // Check delete permission (admin only)
+    check_permission(&current_user, StorageAction::Delete)?;
+
+    // Verify document exists
+    let document = sqlx::query_as::<_, Document>(
+        r#"
+        SELECT id, title, category, deleted_at, created_at, updated_at
+        FROM documents
+        WHERE id = $1
+        "#,
+    )
+    .bind(document_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+
+    let doc = match document {
+        Some(d) => {
+            info!(
+                user_id = %current_user.id,
+                username = %current_user.username,
+                document_id = %document_id,
+                title = %d.title,
+                "Hard deleting document"
+            );
+            d
+        }
+        None => {
+            warn!(document_id = %document_id, "Document not found for hard deletion");
+            return Err(AppError::NotFound("Document not found"));
+        }
+    };
+
+    // Get all versions for this document (to delete files from OpenDAL)
+    let versions = sqlx::query_as::<_, DocumentVersion>(
+        r#"
+        SELECT id, document_id, version_number, file_name, file_path, file_size, mime_type, checksum, created_at
+        FROM document_versions
+        WHERE document_id = $1
+        "#,
+    )
+    .bind(document_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+
+    // Delete all files from OpenDAL storage
+    for version in &versions {
+        debug!(
+            document_id = %document_id,
+            version_number = version.version_number,
+            file_path = %version.file_path,
+            "Deleting file from storage"
+        );
+        
+        // Delete from OpenDAL
+        // Note: If file doesn't exist, OpenDAL might return an error.
+        // We log a warning but continue deletion.
+        if let Err(e) = state.storage.delete(&version.file_path).await {
+            warn!(
+                error = ?e,
+                file_path = %version.file_path,
+                "Failed to delete file from storage (continuing anyway)"
+            );
+            // Continue deletion even if file deletion fails
+        }
+    }
+
+    // Delete the document from database
+    // This will CASCADE delete:
+    //   - document_versions (ON DELETE CASCADE)
+    //   - document_metadata (ON DELETE CASCADE)
+    //   - document_folders (ON DELETE CASCADE)
+    let rows_affected = sqlx::query(
+        r#"
+        DELETE FROM documents
+        WHERE id = $1
+        "#,
+    )
+    .bind(document_id)
+    .execute(&state.pool)
+    .await
+    .map_err(AppError::Db)?
+    .rows_affected();
+
+    if rows_affected == 0 {
+        // This shouldn't happen since we checked above, but just in case
+        return Err(AppError::NotFound("Document not found"));
+    }
+
+    info!(
+        user_id = %current_user.id,
+        document_id = %document_id,
+        versions_deleted = versions.len(),
+        "Document hard-deleted successfully"
+    );
+
+    Ok(Json(serde_json::json!({
+        "message": "Document hard-deleted successfully",
+        "document_id": document_id,
+        "versions_deleted": versions.len(),
+    })))
+}
+
 async fn list_documents(
     State(state): State<AppState>,
     Query(params): Query<ListDocumentsQuery>,
@@ -123,12 +327,13 @@ async fn list_documents(
         "Listing documents"
     );
 
-    // Count total
+    // Count total (exclude soft-deleted documents)
     let total: (i64,) = sqlx::query_as(
         r#"
         SELECT COUNT(*)
         FROM documents d
-        WHERE ($1 = '' OR d.title ILIKE '%' || $1 || '%')
+        WHERE d.deleted_at IS NULL
+          AND ($1 = '' OR d.title ILIKE '%' || $1 || '%')
           AND ($2::text IS NULL OR d.category = $2)
         "#
     )
@@ -165,7 +370,8 @@ async fn list_documents(
             lv.created_at AS latest_created_at
         FROM documents d
         LEFT JOIN latest_versions lv ON lv.document_id = d.id
-        WHERE ($1 = '' OR d.title ILIKE '%' || $1 || '%')
+        WHERE d.deleted_at IS NULL
+          AND ($1 = '' OR d.title ILIKE '%' || $1 || '%')
           AND ($2::text IS NULL OR d.category = $2)
         ORDER BY d.created_at DESC
         LIMIT $3 OFFSET $4

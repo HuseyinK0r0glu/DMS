@@ -164,7 +164,7 @@ async fn upload_file(
         // Existing document: ensure it exists
         let doc_opt = sqlx::query_as::<_, Document>(
             r#"
-            SELECT id, title, category, created_at, updated_at
+            SELECT id, title, category, created_at, updated_at,deleted_at
             FROM documents
             WHERE id = $1
             "#,
@@ -211,7 +211,7 @@ async fn upload_file(
         let doc = sqlx::query_as::<_, Document>(r#"
             INSERT INTO documents (title, category)
             VALUES ($1, $2)
-            RETURNING id, title, category, created_at, updated_at
+            RETURNING id, title, category, created_at, updated_at,deleted_at
             "#,
         )
         .bind(&title)
