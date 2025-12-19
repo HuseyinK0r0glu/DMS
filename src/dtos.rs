@@ -40,3 +40,8 @@ pub struct ListDocumentsQuery {
     pub title: Option<String>,
     pub category: Option<String>,
 }
+
+#[derive(Deserialize)]
+pub struct DownloadQuery {
+    pub version: Option<i32>, 
+}
