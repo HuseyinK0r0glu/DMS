@@ -11,6 +11,8 @@ use tracing::{info, debug, warn};
 
 use crate::auth::{CurrentUser, check_permission, StorageAction};
 
+use crate::audit::{log_delete,log_download};
+
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/documents", get(list_documents))
@@ -107,6 +109,25 @@ async fn download_document(
         .mime_type
         .unwrap_or_else(|| "application/octet-stream".to_string());
 
+    if let Err(e) = log_download(
+        &state.pool,
+        current_user.id.to_string(),
+        document_id,
+        Some(version_number),
+    )
+    .await
+    {
+        // Log the error but don't fail the download operation
+        // Audit logging should not break the main functionality
+        warn!(
+            error = ?e,
+            document_id = %document_id,
+            user_id = %current_user.id,
+            version_number = version_number,
+            "Failed to create audit log for download"
+        );
+    }
+
     let response = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
@@ -182,6 +203,28 @@ pub async fn soft_delete_document(
 
     if rows_affected == 0 {
         return Err(AppError::BadRequest("Document is already deleted or not found"));
+    }
+
+    if let Err(e) = log_delete(
+        &state.pool,
+        current_user.id.to_string(),
+        document_id,
+        Some(serde_json::json!({
+            "delete_type": "soft",
+            "title": &doc.title,
+            "category": &doc.category,
+        })),
+    )
+    .await
+    {
+        // Log the error but don't fail the delete operation
+        // Audit logging should not break the main functionality
+        warn!(
+            error = ?e,
+            document_id = %document_id,
+            user_id = %current_user.id,
+            "Failed to create audit log for soft delete"
+        );
     }
 
     info!(
@@ -269,6 +312,30 @@ pub async fn hard_delete_document(
             );
             // Continue deletion even if file deletion fails
         }
+    }
+
+    if let Err(e) = log_delete(
+        &state.pool,
+        current_user.id.to_string(),
+        document_id,
+        Some(serde_json::json!({
+            "delete_type": "hard",
+            "title": &doc.title,
+            "category": &doc.category,
+            "versions_deleted": versions.len(),
+            "files_deleted": versions.len(),
+        })),
+    )
+    .await
+    {
+        // Log the error but don't fail the delete operation
+        // Audit logging should not break the main functionality
+        warn!(
+            error = ?e,
+            document_id = %document_id,
+            user_id = %current_user.id,
+            "Failed to create audit log for hard delete"
+        );
     }
 
     // Delete the document from database

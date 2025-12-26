@@ -4,9 +4,11 @@ use axum::Json;
 use crate::{state::AppState, dtos::UploadResponse, error::AppError, models::{Document, DocumentVersion}};
 use crate::auth::{CurrentUser, check_permission, StorageAction};
 use uuid::Uuid;
-use serde_json::Value;
+use serde_json::{Value,json};
 use std::{collections::HashMap, fs};
 use tracing::{info, debug, warn};
+
+use crate::audit::{log_upload};
 
 pub fn routes() -> Router<AppState> {
     Router::new().route("/upload", post(upload_file))
@@ -341,6 +343,31 @@ async fn upload_file(
             warn!(error = ?err, "Failed to commit transaction");
             AppError::Db(err)
         })?;
+
+    if let Err(e) = log_upload(
+        &state.pool,
+        current_user.id.to_string(),
+        document.id,
+        next_version_number,
+        Some(json!({
+            "file_name": &file_name,
+            "file_size": file_size,
+            "mime_type": &mime_type,
+            "checksum": &checksum,
+            "metadata_count": metadata_count,
+        })),
+    )
+    .await
+    {
+        // Log the error but don't fail the upload operation
+        // Audit logging should not break the main functionality
+        warn!(
+            error = ?e,
+            document_id = %document.id,
+            user_id = %current_user.id,
+            "Failed to create audit log for upload"
+        );
+    }
 
     let response = UploadResponse {
         document_id: document.id,

@@ -5,6 +5,7 @@ mod error;
 mod state;
 mod routes;
 mod auth;
+mod audit;
 
 use axum::Router;
 use sqlx::PgPool;
