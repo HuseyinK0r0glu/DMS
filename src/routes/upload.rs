@@ -141,7 +141,7 @@ async fn upload_file(
     //     .await?;
     // let stored_path = stored_file_name.clone();
     //
-    // NEW APPROACH (what you asked for):
+    // NEW APPROACH:
     // ---------------------------------
     // We want storage keys like:
     //   {document_id}/v{version_number}

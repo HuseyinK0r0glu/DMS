@@ -16,7 +16,35 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    container_name: dms_seaweedfs
+    ports:
+      - "8333:8333"    # S3 API port
+      - "8888:8888"    # Filer UI port
+      - "9333:9333"    # Master server port
+    volumes:
+      - seaweedfs_data:/data
+    command: >
+      server
+      -master.port=9333
+      -master.defaultReplication=000
+      -master.volumeSizeLimitMB=10000
+      -volume.max=100
+      -filer=true
+      -filer.port=8888
+      -s3=true
+      -s3.port=8333
+      -s3.iam=false
+      -dir=/data
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:8333 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 volumes:
   postgres_data:
+  seaweedfs_data:
 
