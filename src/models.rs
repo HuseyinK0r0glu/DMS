@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use sqlx::FromRow;
 use uuid::Uuid;
 
@@ -112,4 +113,71 @@ pub struct User {
     pub api_key: String,
     pub role: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Audit action enum - maps to PostgreSQL `audit_action` ENUM type
+/// Represents the type of action performed on a document
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "audit_action", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AuditAction {
+    /// Document uploaded
+    Upload,
+    /// Document downloaded
+    Download,
+    /// Document metadata updated
+    UpdateMetadata,
+    /// New version created
+    CreateVersion,
+    /// Document deleted (soft or hard)
+    Delete,
+    /// Previous version restored
+    RestoreVersion,
+}
+
+/// Audit log model - represents an immutable audit record
+/// Maps to the `audit_logs` table
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct AuditLog {
+    /// Primary key - UUID
+    pub id: Uuid,
+    
+    /// User who performed the action - VARCHAR(255) NOT NULL
+    pub user_id: String,
+    
+    /// Type of action performed - audit_action NOT NULL
+    pub action: AuditAction,
+    
+    /// Target document (nullable for actions that don't target a specific document)
+    /// UUID REFERENCES documents(id) ON DELETE SET NULL
+    pub document_id: Option<Uuid>,
+    
+    /// Document version affected (nullable, only relevant for version-specific actions)
+    /// INTEGER NULLABLE
+    pub document_version: Option<i32>,
+    
+    /// Additional context/metadata as JSON - JSONB DEFAULT '{}'::jsonb
+    pub metadata: JsonValue,
+    
+    /// Timestamp when action occurred (immutable) - TIMESTAMP WITH TIME ZONE NOT NULL
+    pub created_at: DateTime<Utc>,
+}
+
+/// New audit log input - for creating audit logs without ID and timestamp
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewAuditLog {
+    /// User who performed the action
+    pub user_id: String,
+    
+    /// Type of action performed
+    pub action: AuditAction,
+    
+    /// Target document (optional)
+    pub document_id: Option<Uuid>,
+    
+    /// Document version affected (optional)
+    pub document_version: Option<i32>,
+    
+    /// Additional context/metadata as JSON (optional, defaults to empty object)
+    #[serde(default)]
+    pub metadata: JsonValue,
 }
