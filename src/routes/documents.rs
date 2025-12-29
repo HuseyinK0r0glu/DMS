@@ -21,6 +21,23 @@ pub fn routes() -> Router<AppState> {
         .route("/documents/:id/hard", delete(hard_delete_document))
 }
 
+#[utoipa::path(
+    get,
+    path = "/documents/{id}/content",
+    tag = "documents",
+    params(
+        ("id" = Uuid, Path, description = "Document ID"),
+        ("version" = Option<i32>, Query, description = "Version number (optional, defaults to latest)")
+    ),
+    responses(
+        (status = 200, description = "File content", content_type = "application/octet-stream"),
+        (status = 404, description = "Document not found"),
+        (status = 401, description = "Unauthorized")
+    ),
+    security(
+        ("api_key" = [])
+    )
+)]
 async fn download_document(
     State(state) : State<AppState>,
     Path(document_id) : Path<Uuid>, 
@@ -145,6 +162,24 @@ async fn download_document(
 
 /// Soft delete: Mark document as deleted (set deleted_at timestamp)
 /// Document and its data remain in database but are hidden from users
+#[utoipa::path(
+    delete,
+    path = "/documents/{id}",
+    tag = "documents",
+    params(
+        ("id" = Uuid, Path, description = "Document ID")
+    ),
+    responses(
+        (status = 200, description = "Document soft deleted successfully"),
+        (status = 404, description = "Document not found"),
+        (status = 400, description = "Document already deleted"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - Admin access required")
+    ),
+    security(
+        ("api_key" = [])
+    )
+)]
 pub async fn soft_delete_document(
     State(state): State<AppState>,
     current_user: CurrentUser,
@@ -241,6 +276,23 @@ pub async fn soft_delete_document(
 }
 
 /// Hard delete: Permanently delete document, all versions, metadata, folder links, and files from storage
+#[utoipa::path(
+    delete,
+    path = "/documents/{id}/hard",
+    tag = "documents",
+    params(
+        ("id" = Uuid, Path, description = "Document ID")
+    ),
+    responses(
+        (status = 200, description = "Document permanently deleted successfully"),
+        (status = 404, description = "Document not found"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - Admin access required")
+    ),
+    security(
+        ("api_key" = [])
+    )
+)]
 pub async fn hard_delete_document(
     State(state): State<AppState>,
     current_user: CurrentUser,
@@ -374,6 +426,24 @@ pub async fn hard_delete_document(
     })))
 }
 
+#[utoipa::path(
+    get,
+    path = "/documents",
+    tag = "documents",
+    params(
+        ("page" = Option<u32>, Query, description = "Page number (default: 1)"),
+        ("page_size" = Option<u32>, Query, description = "Page size (default: 20, max: 100)"),
+        ("title" = Option<String>, Query, description = "Filter by title (partial match)"),
+        ("category" = Option<String>, Query, description = "Filter by category (exact match)")
+    ),
+    responses(
+        (status = 200, description = "List of documents", body = ListDocumentsResponse),
+        (status = 401, description = "Unauthorized")
+    ),
+    security(
+        ("api_key" = [])
+    )
+)]
 async fn list_documents(
     State(state): State<AppState>,
     Query(params): Query<ListDocumentsQuery>,

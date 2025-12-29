@@ -36,6 +36,20 @@ fn build_storage_path_with_folder(
     format!("{}/{}/v{}", folder_name, document_id, version_number)
 }
 
+#[utoipa::path(
+    post,
+    path = "/upload",
+    tag = "upload",
+    request_body(content = String, content_type = "multipart/form-data", description = "File upload with title, category, and optional metadata"),
+    responses(
+        (status = 200, description = "Upload successful", body = UploadResponse),
+        (status = 400, description = "Bad request"),
+        (status = 401, description = "Unauthorized")
+    ),
+    security(
+        ("api_key" = [])
+    )
+)]
 async fn upload_file(
     State(state): State<AppState>,
     current_user: CurrentUser,

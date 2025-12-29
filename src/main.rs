@@ -6,6 +6,7 @@ mod state;
 mod routes;
 mod auth;
 mod audit;
+mod openapi;
 
 use axum::Router;
 use sqlx::PgPool;

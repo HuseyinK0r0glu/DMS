@@ -3,10 +3,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use sqlx::FromRow;
 use uuid::Uuid;
+use utoipa::{ToSchema, schema};
 
 /// Document model - represents a logical document
 /// Maps to the `documents` table
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Document {
     /// Primary key - UUID
     pub id: Uuid,
@@ -29,7 +30,7 @@ pub struct Document {
 
 /// DocumentVersion model - represents a physical file version
 /// Maps to the `document_versions` table
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct DocumentVersion {
     /// Primary key - UUID
     pub id: Uuid,
@@ -117,7 +118,7 @@ pub struct User {
 
 /// Audit action enum - maps to PostgreSQL `audit_action` ENUM type
 /// Represents the type of action performed on a document
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, ToSchema)]
 #[sqlx(type_name = "audit_action", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AuditAction {
     /// Document uploaded
@@ -136,7 +137,7 @@ pub enum AuditAction {
 
 /// Audit log model - represents an immutable audit record
 /// Maps to the `audit_logs` table
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct AuditLog {
     /// Primary key - UUID
     pub id: Uuid,
@@ -156,6 +157,7 @@ pub struct AuditLog {
     pub document_version: Option<i32>,
     
     /// Additional context/metadata as JSON - JSONB DEFAULT '{}'::jsonb
+    #[schema(value_type = Object)]
     pub metadata: JsonValue,
     
     /// Timestamp when action occurred (immutable) - TIMESTAMP WITH TIME ZONE NOT NULL

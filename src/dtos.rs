@@ -3,8 +3,9 @@ use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use sqlx::FromRow;
 use crate::models::AuditLog;
+use utoipa::ToSchema;
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct UploadResponse {
     pub document_id: Uuid,
     pub version_id: Uuid,
@@ -12,7 +13,7 @@ pub struct UploadResponse {
     pub metadata_message: String,
 }
 
-#[derive(Serialize,FromRow)]
+#[derive(Serialize, FromRow, ToSchema)]
 pub struct DocumentWithLatest {
     pub id: Uuid,
     pub title: String,
@@ -26,7 +27,7 @@ pub struct DocumentWithLatest {
     pub latest_created_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ListDocumentsResponse {
     pub data : Vec<DocumentWithLatest>,
     pub page: u32,
@@ -34,7 +35,7 @@ pub struct ListDocumentsResponse {
     pub total: i64,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct ListDocumentsQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
@@ -42,12 +43,12 @@ pub struct ListDocumentsQuery {
     pub category: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct DownloadQuery {
     pub version: Option<i32>, 
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct AuditResponse {
     pub data: Vec<AuditLog>,
     pub total: i64,

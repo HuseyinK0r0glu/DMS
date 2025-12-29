@@ -11,6 +11,19 @@ pub fn routes() -> Router<AppState> {
     Router::new().route("/audit", get(get_actions))
 }
 
+#[utoipa::path(
+    get,
+    path = "/audit",
+    tag = "audit",
+    responses(
+        (status = 200, description = "List of audit logs", body = AuditResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - Admin access required")
+    ),
+    security(
+        ("api_key" = [])
+    )
+)]
 async fn get_actions(
     State(state): State<AppState>,
     current_user: CurrentUser,

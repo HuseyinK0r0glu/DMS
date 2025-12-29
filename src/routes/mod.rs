@@ -1,13 +1,18 @@
 use axum::Router;
 use crate::state::AppState;
 use tower_http::trace::TraceLayer;
+use utoipa_swagger_ui::SwaggerUi;
+use utoipa::OpenApi;
 
 pub mod upload;
 pub mod documents;
 pub mod audit;
 
+use crate::openapi::ApiDoc; 
+
 pub fn router(state: AppState) -> Router {
     Router::new()
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-doc/openapi.json", ApiDoc::openapi()))
         .merge(upload::routes())
         .merge(documents::routes())
         .merge(audit::routes())
