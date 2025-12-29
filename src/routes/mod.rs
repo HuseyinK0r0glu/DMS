@@ -8,11 +8,11 @@ pub mod upload;
 pub mod documents;
 pub mod audit;
 
-use crate::openapi::ApiDoc; 
+use crate::openapi::openapi_with_security; 
 
 pub fn router(state: AppState) -> Router {
     Router::new()
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-doc/openapi.json", ApiDoc::openapi()))
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-doc/openapi.json", openapi_with_security()))
         .merge(upload::routes())
         .merge(documents::routes())
         .merge(audit::routes())

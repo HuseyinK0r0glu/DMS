@@ -1,4 +1,5 @@
 use utoipa::OpenApi;
+use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 use crate::models::{Document, DocumentVersion, AuditLog, AuditAction};
 use crate::dtos::{UploadResponse, ListDocumentsResponse, ListDocumentsQuery, DownloadQuery, AuditResponse, DocumentWithLatest};
 
@@ -39,3 +40,14 @@ use crate::dtos::{UploadResponse, ListDocumentsResponse, ListDocumentsQuery, Dow
     )
 )]
 pub struct ApiDoc;
+
+pub fn openapi_with_security() -> utoipa::openapi::OpenApi {
+    let mut openapi = ApiDoc::openapi();
+    if let Some(components) = openapi.components.as_mut() {
+        components.add_security_scheme(
+            "api_key",
+            SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("X-API-Key"))),
+        );
+    }
+    openapi
+}
