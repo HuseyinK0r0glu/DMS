@@ -4,11 +4,13 @@ use tower_http::trace::TraceLayer;
 
 pub mod upload;
 pub mod documents;
+pub mod audit;
 
 pub fn router(state: AppState) -> Router {
     Router::new()
         .merge(upload::routes())
         .merge(documents::routes())
+        .merge(audit::routes())
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<_>| {

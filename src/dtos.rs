@@ -2,6 +2,7 @@ use serde::{Deserialize , Serialize};
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use sqlx::FromRow;
+use crate::models::AuditLog;
 
 #[derive(Serialize)]
 pub struct UploadResponse {
@@ -44,4 +45,10 @@ pub struct ListDocumentsQuery {
 #[derive(Deserialize)]
 pub struct DownloadQuery {
     pub version: Option<i32>, 
+}
+
+#[derive(Serialize)]
+pub struct AuditResponse {
+    pub data: Vec<AuditLog>,
+    pub total: i64,
 }

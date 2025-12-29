@@ -78,6 +78,7 @@ pub enum StorageAction {
     Write,
     Delete,
     Stat,
+    GetActions
 }
 
 /// Check if a user has permission for a specific storage action
@@ -110,6 +111,14 @@ pub fn check_permission(user: &CurrentUser, action: StorageAction) -> Result<(),
         StorageAction::Stat => {
             // same as read for now
             check_permission(user, StorageAction::Read)
+        }
+        StorageAction::GetActions => {
+            // only admin can reach to actions
+            if user.role == "admin" {
+                Ok(())
+            } else {
+                Err(AppError::BadRequest("Permission denied: admin access required"))
+            }
         }
     }
 }
