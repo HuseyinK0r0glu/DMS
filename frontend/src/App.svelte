@@ -1,23 +1,47 @@
+<!-- Main App Component - Orchestrates all components -->
 <script>
-  // Svelte 5 uses runes for reactivity
-  let count = $state(0);
-  
-  function increment() {
-    count++;
-    console.log(count)
-  }
+  import Header from './components/Header.svelte';
+  import Sidebar from './components/Sidebar.svelte';
+  import MainContent from './components/MainContent.svelte';
+  import PropertiesPanel from './components/PropertiesPanel.svelte';
 </script>
 
-<main>
-  <h1>Document Management System</h1>
-  <p>Count: {count}</p>
-  <button onclick={increment}>Increment</button>
-</main>
+<div class="app-container">
+  <Header />
+  
+  <div class="content-wrapper">
+    <Sidebar />
+    <MainContent />
+    <PropertiesPanel />
+  </div>
+</div>
 
 <style>
-  main {
-    padding: 2rem;
-    text-align: center;
+  /* Global Reset */
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* App Container - Full Page Layout */
+  .app-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background-color: #f5f5f5;
+  }
+
+  /* Content Wrapper - Contains Sidebar, Main, and Properties */
+  .content-wrapper {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
   }
 </style>
-
