@@ -4,3 +4,7 @@
 .DS_Store
 uploads
 functional_requirements.txt
+frontend/node_modules/
+frontend/dist/
+frontend/.svelte-kit/
+frontend/.vite/
