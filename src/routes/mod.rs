@@ -1,6 +1,7 @@
 use axum::Router;
 use crate::state::AppState;
 use tower_http::trace::TraceLayer;
+use tower_http::cors::CorsLayer;
 use utoipa_swagger_ui::SwaggerUi;
 use utoipa::OpenApi;
 
@@ -20,6 +21,7 @@ pub fn router(state: AppState) -> Router {
         .merge(audit::routes())
         .merge(folders::routes())                                                                                                                                                                           
         .merge(tags::routes())
+        .layer(CorsLayer::permissive()) // Allow CORS for frontend development , allow requests from UI
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<_>| {
