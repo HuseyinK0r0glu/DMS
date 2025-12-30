@@ -183,3 +183,45 @@ pub struct NewAuditLog {
     #[serde(default)]
     pub metadata: JsonValue,
 }
+
+/// Tag model - represents a tag that can be associated with documents
+/// Maps to the `tags` table
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
+pub struct Tag {
+    /// Primary key - UUID
+    pub id: Uuid,
+    
+    /// Tag name - TEXT NOT NULL UNIQUE
+    pub name: String,
+    
+    /// Creation timestamp - TIMESTAMP WITH TIME ZONE
+    pub created_at: DateTime<Utc>,
+}
+
+/// DocumentTag model - represents the many-to-many relationship between documents and tags
+/// Maps to the `document_tags` table
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
+pub struct DocumentTag {
+    /// Foreign key to documents table - UUID NOT NULL
+    pub document_id: Uuid,
+    
+    /// Foreign key to tags table - UUID NOT NULL
+    pub tag_id: Uuid,
+}
+
+/// New tag input - for creating tags without ID and timestamp
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewTag {
+    /// Tag name
+    pub name: String,
+}
+
+/// New document tag input - for creating document-tag relationships
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewDocumentTag {
+    /// Document ID
+    pub document_id: Uuid,
+    
+    /// Tag ID
+    pub tag_id: Uuid,
+}
