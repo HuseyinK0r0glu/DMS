@@ -1,9 +1,9 @@
-use serde::{Deserialize , Serialize};
-use uuid::Uuid;
-use chrono::{DateTime, Utc};
-use sqlx::FromRow;
 use crate::models::AuditLog;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 #[derive(Serialize, ToSchema)]
 pub struct UploadResponse {
@@ -29,7 +29,7 @@ pub struct DocumentWithLatest {
 
 #[derive(Serialize, ToSchema)]
 pub struct ListDocumentsResponse {
-    pub data : Vec<DocumentWithLatest>,
+    pub data: Vec<DocumentWithLatest>,
     pub page: u32,
     pub page_size: u32,
     pub total: i64,
@@ -45,7 +45,7 @@ pub struct ListDocumentsQuery {
 
 #[derive(Deserialize, ToSchema)]
 pub struct DownloadQuery {
-    pub version: Option<i32>, 
+    pub version: Option<i32>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -84,4 +84,18 @@ pub struct AddTagToDocumentResponse {
     pub document_id: Uuid,
     pub tags: Vec<TagInfo>,
     pub total: usize,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct LoginRequest {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct LoginResponse {
+    pub api_key: String,
+    pub username: String,
+    pub user_id: Uuid,
+    pub role: String,
 }

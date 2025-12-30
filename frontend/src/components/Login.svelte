@@ -161,11 +161,6 @@
     margin-bottom: 0.5rem;
   }
 
-  .login-subtitle {
-    color: #666;
-    font-size: 0.95rem;
-  }
-
   .login-form {
     display: flex;
     flex-direction: column;

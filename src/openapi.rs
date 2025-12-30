@@ -1,7 +1,7 @@
 use utoipa::OpenApi;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 use crate::models::{Document, DocumentVersion, AuditLog, AuditAction};
-use crate::dtos::{UploadResponse, ListDocumentsResponse, ListDocumentsQuery, DownloadQuery, AuditResponse, DocumentWithLatest, CreateFolderRequest, CreateFolderResponse,AddTagToDocumentRequest,AddTagToDocumentResponse,TagInfo};
+use crate::dtos::{UploadResponse, ListDocumentsResponse, ListDocumentsQuery, DownloadQuery, AuditResponse, DocumentWithLatest, CreateFolderRequest, CreateFolderResponse,AddTagToDocumentRequest,AddTagToDocumentResponse,TagInfo, LoginRequest, LoginResponse};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -14,6 +14,7 @@ use crate::dtos::{UploadResponse, ListDocumentsResponse, ListDocumentsQuery, Dow
         crate::routes::audit::get_actions,
         crate::routes::folders::create_folder,
         crate::routes::tags::add_tags_to_document,
+        crate::routes::login::login,
     ),
     components(schemas(
         Document,
@@ -31,6 +32,8 @@ use crate::dtos::{UploadResponse, ListDocumentsResponse, ListDocumentsQuery, Dow
         AddTagToDocumentRequest,
         AddTagToDocumentResponse,
         TagInfo,
+        LoginRequest,
+        LoginResponse,
     )),
     tags(
         (name = "documents", description = "Document management endpoints"),
@@ -38,6 +41,7 @@ use crate::dtos::{UploadResponse, ListDocumentsResponse, ListDocumentsQuery, Dow
         (name = "audit", description = "Audit log endpoints (admin only)"),
         (name = "folders", description = "Folder management endpoints"),
         (name = "tags", description = "Tag management endpoints"),
+        (name = "auth", description = "Authentication endpoints"),
     ),
     info(
         title = "Document Management System API",

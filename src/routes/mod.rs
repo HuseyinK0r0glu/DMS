@@ -10,6 +10,7 @@ pub mod documents;
 pub mod audit;
 pub mod folders;
 pub mod tags;
+pub mod login;
 
 use crate::openapi::openapi_with_security; 
 
@@ -21,6 +22,7 @@ pub fn router(state: AppState) -> Router {
         .merge(audit::routes())
         .merge(folders::routes())                                                                                                                                                                           
         .merge(tags::routes())
+        .merge(login::routes())
         .layer(CorsLayer::permissive()) // Allow CORS for frontend development , allow requests from UI
         .layer(
             TraceLayer::new_for_http()

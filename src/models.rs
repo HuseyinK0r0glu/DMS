@@ -112,6 +112,7 @@ pub struct User {
     pub id: uuid::Uuid,
     pub username: String,
     pub api_key: String,
+    pub password: Option<String>, 
     pub role: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }

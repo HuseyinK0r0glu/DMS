@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 --  DOCUMENTS TABLE  (Logical Document)
 -- ==========================================
 CREATE TABLE IF NOT EXISTS documents (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4 (),
     title VARCHAR(255) NOT NULL,
     category VARCHAR(100),
     deleted_at TIMESTAMP WITH TIME ZONE NULL,
@@ -19,9 +19,9 @@ CREATE TABLE IF NOT EXISTS documents (
 --  DOCUMENT VERSIONS TABLE (Actual File)
 -- ==========================================
 CREATE TABLE IF NOT EXISTS document_versions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    version_number INTEGER NOT NULL,             -- 1,2,3,...
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4 (),
+    document_id UUID NOT NULL REFERENCES documents (id) ON DELETE CASCADE,
+    version_number INTEGER NOT NULL, -- 1,2,3,...
     file_name VARCHAR(255) NOT NULL,
     file_path TEXT NOT NULL,
     file_size BIGINT NOT NULL,
@@ -31,12 +31,10 @@ CREATE TABLE IF NOT EXISTS document_versions (
 );
 
 -- Ensure version numbers are unique per document
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_document_versions 
-    ON document_versions(document_id, version_number);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_document_versions ON document_versions (document_id, version_number);
 
 -- Index for faster queries
-CREATE INDEX IF NOT EXISTS idx_doc_versions_doc_id 
-    ON document_versions(document_id);
+CREATE INDEX IF NOT EXISTS idx_doc_versions_doc_id ON document_versions (document_id);
 
 -- ==========================================
 --  USERS TABLE (for API authentication & authorization)
@@ -56,30 +54,29 @@ CREATE INDEX IF NOT EXISTS idx_doc_versions_doc_id
 -- for development and Postman testing.
 
 CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4 (),
     username VARCHAR(100) UNIQUE NOT NULL,
     api_key VARCHAR(255) UNIQUE NOT NULL,
+    password VARCHAR(255),
     role VARCHAR(50) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_users_role 
-    ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users (role);
 
 -- ==========================================
 --  DOCUMENT METADATA TABLE (Dynamic Key-Value)
 -- ==========================================
 CREATE TABLE IF NOT EXISTS document_metadata (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4 (),
+    document_id UUID NOT NULL REFERENCES documents (id) ON DELETE CASCADE,
     key VARCHAR(255) NOT NULL,
     value TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(document_id, key)
+    UNIQUE (document_id, key)
 );
 
-CREATE INDEX IF NOT EXISTS idx_metadata_document_id 
-    ON document_metadata(document_id);
+CREATE INDEX IF NOT EXISTS idx_metadata_document_id ON document_metadata (document_id);
 
 -- -- ==========================================
 -- --  FOLDERS TABLE
@@ -101,10 +98,10 @@ CREATE INDEX IF NOT EXISTS idx_metadata_document_id
 --     PRIMARY KEY (document_id, folder_id)
 -- );
 
--- CREATE INDEX IF NOT EXISTS idx_document_folders_document_id 
+-- CREATE INDEX IF NOT EXISTS idx_document_folders_document_id
 --     ON document_folders(document_id);
 
--- CREATE INDEX IF NOT EXISTS idx_document_folders_folder_id 
+-- CREATE INDEX IF NOT EXISTS idx_document_folders_folder_id
 --     ON document_folders(folder_id);
 
 -- ==========================================
@@ -124,20 +121,22 @@ BEFORE UPDATE ON documents
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TABLE tags (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name TEXT NOT NULL UNIQUE,
-  created_at TIMESTAMPTZ DEFAULT now()
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4 (),
+    name TEXT NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE TABLE document_tags (
-  document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-  tag_id UUID NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-  PRIMARY KEY (document_id, tag_id)
+    document_id UUID NOT NULL REFERENCES documents (id) ON DELETE CASCADE,
+    tag_id UUID NOT NULL REFERENCES tags (id) ON DELETE CASCADE,
+    PRIMARY KEY (document_id, tag_id)
 );
 
-CREATE INDEX idx_tags_name ON tags(name);
-CREATE INDEX idx_document_tags_document ON document_tags(document_id);
-CREATE INDEX idx_document_tags_tag ON document_tags(tag_id);
+CREATE INDEX idx_tags_name ON tags (name);
+
+CREATE INDEX idx_document_tags_document ON document_tags (document_id);
+
+CREATE INDEX idx_document_tags_tag ON document_tags (tag_id);
 
 -- ==========================================
 --  SEED DEFAULT FOLDERS
@@ -160,9 +159,35 @@ CREATE INDEX idx_document_tags_tag ON document_tags(tag_id);
 -- In production you would want to generate and store secure keys,
 -- and never commit them to source control.
 
-INSERT INTO users (username, api_key, role) VALUES
-    ('admin_user',  'admin-key-123',  'admin'),
-    ('editor_user', 'editor-key-123', 'editor'),
-    ('viewer_user', 'viewer-key-123', 'viewer'),
-    ('unauthorized_user', 'unauthorized-key-123', 'unauthorized')
+INSERT INTO
+    users (
+        username,
+        api_key,
+        password,
+        role
+    )
+VALUES (
+        'admin_user',
+        'admin-key-123',
+        'admin123',
+        'admin'
+    ),
+    (
+        'editor_user',
+        'editor-key-123',
+        'editor123',
+        'editor'
+    ),
+    (
+        'viewer_user',
+        'viewer-key-123',
+        'viewer123',
+        'viewer'
+    ),
+    (
+        'unauthorized_user',
+        'unauthorized-key-123',
+        'unauthorized123',
+        'unauthorized'
+    )
 ON CONFLICT (api_key) DO NOTHING;
