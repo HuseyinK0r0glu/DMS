@@ -1,6 +1,6 @@
 <!-- Header Component - Top bar with title and user menu -->
 <script>
-  // We'll add user menu functionality later
+  let { userInfo, handleLogout } = $props();
 </script>
 
 <header class="header">
@@ -8,9 +8,10 @@
     <h1 class="app-title">Document Management System</h1>
   </div>
   <div class="header-right">
-    <span class="user-name">User</span>
+    <span class="user-name">{userInfo?.username || 'User'}</span>
     <button class="icon-button" title="Settings">⚙️</button>
     <button class="icon-button" title="Help">❓</button>
+    <button class="logout-button" onclick={handleLogout} title="Logout">Logout</button>
   </div>
 </header>
 
@@ -59,6 +60,22 @@
 
   .icon-button:hover {
     background-color: #f0f0f0;
+  }
+
+  .logout-button {
+    background: none;
+    border: 1px solid #ccc;
+    padding: 0.4rem 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: #666;
+    transition: all 0.2s;
+  }
+
+  .logout-button:hover {
+    background-color: #f0f0f0;
+    border-color: #999;
   }
 </style>
 
