@@ -65,3 +65,23 @@ pub struct CreateFolderResponse {
     pub created_at: DateTime<Utc>,
     pub created_by: Uuid,
 }
+
+#[derive(Deserialize, ToSchema)]
+pub struct AddTagToDocumentRequest {
+    pub document_id: Uuid,
+    pub tags: Vec<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct TagInfo {
+    pub tag_id: Uuid,
+    pub tag_name: String,
+    pub tag_created: bool,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct AddTagToDocumentResponse {
+    pub document_id: Uuid,
+    pub tags: Vec<TagInfo>,
+    pub total: usize,
+}
