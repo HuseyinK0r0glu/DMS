@@ -8,6 +8,7 @@ pub mod upload;
 pub mod documents;
 pub mod audit;
 pub mod folders;
+pub mod tags;
 
 use crate::openapi::openapi_with_security; 
 
@@ -17,7 +18,8 @@ pub fn router(state: AppState) -> Router {
         .merge(upload::routes())
         .merge(documents::routes())
         .merge(audit::routes())
-        .merge(folders::routes())
+        .merge(folders::routes())                                                                                                                                                                           
+        .merge(tags::routes())
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<_>| {
@@ -30,7 +32,7 @@ pub fn router(state: AppState) -> Router {
                 .on_request(|_request: &axum::http::Request<_>, _span: &tracing::Span| {
                     tracing::debug!("request started");
                 })
-                .on_response(|response: &axum::http::Response<_>, latency: std::time::Duration, _span: &tracing::Span| {
+                .on_response(|response: &axum::http::Response<_>, latency: std::time::Duration, _span: &tracing::Span| {                            
                     tracing::info!(
                         status = %response.status(),
                         latency_ms = latency.as_millis(),
