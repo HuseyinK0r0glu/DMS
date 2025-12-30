@@ -1,7 +1,7 @@
 use utoipa::OpenApi;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 use crate::models::{Document, DocumentVersion, AuditLog, AuditAction};
-use crate::dtos::{UploadResponse, ListDocumentsResponse, ListDocumentsQuery, DownloadQuery, AuditResponse, DocumentWithLatest};
+use crate::dtos::{UploadResponse, ListDocumentsResponse, ListDocumentsQuery, DownloadQuery, AuditResponse, DocumentWithLatest, CreateFolderRequest, CreateFolderResponse};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -12,6 +12,7 @@ use crate::dtos::{UploadResponse, ListDocumentsResponse, ListDocumentsQuery, Dow
         crate::routes::documents::soft_delete_document,
         crate::routes::documents::hard_delete_document,
         crate::routes::audit::get_actions,
+        crate::routes::folders::create_folder,
     ),
     components(schemas(
         Document,
@@ -24,11 +25,14 @@ use crate::dtos::{UploadResponse, ListDocumentsResponse, ListDocumentsQuery, Dow
         ListDocumentsQuery,
         DownloadQuery,
         AuditResponse,
+        CreateFolderRequest,
+        CreateFolderResponse,
     )),
     tags(
         (name = "documents", description = "Document management endpoints"),
         (name = "upload", description = "File upload endpoints"),
         (name = "audit", description = "Audit log endpoints (admin only)"),
+        (name = "folders", description = "Folder management endpoints"),
     ),
     info(
         title = "Document Management System API",

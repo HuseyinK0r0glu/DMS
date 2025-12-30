@@ -53,3 +53,15 @@ pub struct AuditResponse {
     pub data: Vec<AuditLog>,
     pub total: i64,
 }
+
+#[derive(Deserialize, ToSchema)]
+pub struct CreateFolderRequest {
+    pub name: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct CreateFolderResponse {
+    pub folder_name: String,
+    pub created_at: DateTime<Utc>,
+    pub created_by: Uuid,
+}

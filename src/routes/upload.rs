@@ -16,22 +16,16 @@ pub fn routes() -> Router<AppState> {
 
 // for using the folders structure in the seaweed
 fn build_storage_path_with_folder(
-    category: Option<&String>,
+    folder_name: Option<String>,
     document_id: Uuid,
     version_number: i32,
 ) -> String {
-    let folder_name = category
-        .as_deref()
+    let folder_name = folder_name
+        .as_ref()
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
-        .map(|name| {
-            match name.to_lowercase().as_str() {
-                "finance" => "Finance",
-                "report" | "reports" => "Reports",
-                _ => "Others",
-            }
-        })
-        .unwrap_or("Uncategorized");
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "Uncategorized".to_string());
 
     format!("{}/{}/v{}", folder_name, document_id, version_number)
 }
@@ -320,8 +314,10 @@ async fn upload_file(
     // // Example key: "{document_id}/v{version_number}"
     // let stored_path = format!("{}/v{}", document.id, next_version_number);
 
+    let folder_name = category.map(|s| s.to_string());
+
     let stored_path = build_storage_path_with_folder(
-        category.as_ref(),
+        folder_name,
         document.id,
         next_version_number,
     );
