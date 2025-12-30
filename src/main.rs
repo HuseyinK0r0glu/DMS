@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
     let pool = PgPool::connect(&database_url).await?;
 
     // Ensure uploads directory exists
-    let upload_dir = PathBuf::from("uploads");
+    // let upload_dir = PathBuf::from("uploads");
     // fs::create_dir_all(&upload_dir)?;
 
     // Build OpenDAL operator for local filesystem storage rooted at `uploads/`.
@@ -130,7 +130,7 @@ async fn main() -> anyhow::Result<()> {
         warn!("Bucket '{}' may not exist, uploads might fail on first request", bucket);
     }
 
-    let state = AppState { pool, upload_dir, storage };
+    let state = AppState { pool, storage };
     let app = routes::router(state);
 
     let listener = TcpListener::bind("0.0.0.0:3000").await?;
