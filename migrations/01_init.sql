@@ -123,6 +123,22 @@ CREATE TRIGGER update_documents_updated_at
 BEFORE UPDATE ON documents
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TABLE tags (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE document_tags (
+  document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  tag_id UUID NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+  PRIMARY KEY (document_id, tag_id)
+);
+
+CREATE INDEX idx_tags_name ON tags(name);
+CREATE INDEX idx_document_tags_document ON document_tags(document_id);
+CREATE INDEX idx_document_tags_tag ON document_tags(tag_id);
+
 -- ==========================================
 --  SEED DEFAULT FOLDERS
 -- ==========================================
