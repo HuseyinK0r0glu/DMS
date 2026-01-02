@@ -1,12 +1,12 @@
+use axum::async_trait;
 use axum::extract::{FromRef, FromRequestParts};
 use axum::http::request::Parts;
-use axum::async_trait;
-use uuid::Uuid;
 use tracing::{debug, warn};
+use uuid::Uuid;
 
-use crate::state::AppState;
-use crate::models::User;
 use crate::error::AppError;
+use crate::models::User;
+use crate::state::AppState;
 
 /// Represents the currently authenticated user
 #[derive(Debug, Clone)]
@@ -44,7 +44,7 @@ where
         // Query database for user with this API key
         let user = sqlx::query_as::<_, User>(
             r#"
-            SELECT id, username, api_key, role, created_at
+            SELECT id, username, api_key, password, role, created_at
             FROM users
             WHERE api_key = $1
             "#,
@@ -78,7 +78,7 @@ pub enum StorageAction {
     Write,
     Delete,
     Stat,
-    GetActions
+    GetActions,
 }
 
 /// Check if a user has permission for a specific storage action
@@ -89,7 +89,9 @@ pub fn check_permission(user: &CurrentUser, action: StorageAction) -> Result<(),
             if user.role == "viewer" || user.role == "editor" || user.role == "admin" {
                 Ok(())
             } else {
-                Err(AppError::BadRequest("Permission denied: read access required"))
+                Err(AppError::BadRequest(
+                    "Permission denied: read access required",
+                ))
             }
         }
         StorageAction::Write => {
@@ -97,7 +99,9 @@ pub fn check_permission(user: &CurrentUser, action: StorageAction) -> Result<(),
             if user.role == "editor" || user.role == "admin" {
                 Ok(())
             } else {
-                Err(AppError::BadRequest("Permission denied: write access required"))
+                Err(AppError::BadRequest(
+                    "Permission denied: write access required",
+                ))
             }
         }
         StorageAction::Delete => {
@@ -105,7 +109,9 @@ pub fn check_permission(user: &CurrentUser, action: StorageAction) -> Result<(),
             if user.role == "admin" {
                 Ok(())
             } else {
-                Err(AppError::BadRequest("Permission denied: admin access required"))
+                Err(AppError::BadRequest(
+                    "Permission denied: admin access required",
+                ))
             }
         }
         StorageAction::Stat => {
@@ -117,9 +123,10 @@ pub fn check_permission(user: &CurrentUser, action: StorageAction) -> Result<(),
             if user.role == "admin" {
                 Ok(())
             } else {
-                Err(AppError::BadRequest("Permission denied: admin access required"))
+                Err(AppError::BadRequest(
+                    "Permission denied: admin access required",
+                ))
             }
         }
     }
 }
-
