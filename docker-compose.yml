@@ -16,29 +16,86 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-  seaweedfs:
+  seaweedfs-master:
     image: chrislusf/seaweedfs:latest
-    container_name: dms_seaweedfs
+    container_name: dms_seaweedfs_master
     ports:
-      - "8333:8333"    # S3 API port
-      - "8888:8888"    # Filer UI port
       - "9333:9333"    # Master server port
     volumes:
-      - seaweedfs_data:/data
+      - seaweedfs_master_data:/data
     command: >
-      server
-      -master.port=9333
-      -master.defaultReplication=000
-      -master.volumeSizeLimitMB=10000
-      -volume.max=100
-      -filer=true
-      -filer.port=8888
+      master
+      -port=9333
+      -defaultReplication=001
+      -volumeSizeLimitMB=10000
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:9333/cluster/status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  seaweedfs-volume1:
+    image: chrislusf/seaweedfs:latest
+    container_name: dms_seaweedfs_volume1
+    depends_on:
+      - seaweedfs-master
+    volumes:
+      - seaweedfs_volume1_data:/data
+    command: >
+      volume
+      -mserver=seaweedfs-master:9333
+      -port=8080
+      -max=50
+      -dir=/data
+    healthcheck:
+      test: ["CMD", "sh", "-c", "test -f /data/.seaweedfs_volume || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  seaweedfs-volume2:
+    image: chrislusf/seaweedfs:latest
+    container_name: dms_seaweedfs_volume2
+    depends_on:
+      - seaweedfs-master
+    volumes:
+      - seaweedfs_volume2_data:/data
+    command: >
+      volume
+      -mserver=seaweedfs-master:9333
+      -port=8080
+      -max=50
+      -dir=/data
+    healthcheck:
+      test: ["CMD", "sh", "-c", "test -f /data/.seaweedfs_volume || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  seaweedfs-filer:
+    image: chrislusf/seaweedfs:latest
+    container_name: dms_seaweedfs_filer
+    depends_on:
+      - seaweedfs-master
+      - seaweedfs-volume1
+      - seaweedfs-volume2
+    ports:
+      - "8888:8888"    # Filer UI port
+      - "8333:8333"    # S3 API port
+    volumes:
+      - seaweedfs_filer_data:/data
+    command: >
+      filer
+      -master=seaweedfs-master:9333
+      -port=8888
       -s3=true
       -s3.port=8333
       -s3.iam=false
-      -dir=/data
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl -f http://localhost:8333 || exit 1"]
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:8888 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -46,5 +103,8 @@ services:
 
 volumes:
   postgres_data:
-  seaweedfs_data:
+  seaweedfs_master_data:
+  seaweedfs_volume1_data:
+  seaweedfs_volume2_data:
+  seaweedfs_filer_data:
 
