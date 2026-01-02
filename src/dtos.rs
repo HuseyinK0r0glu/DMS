@@ -99,3 +99,17 @@ pub struct LoginResponse {
     pub user_id: Uuid,
     pub role: String,
 }
+
+#[derive(Serialize, ToSchema)]
+pub struct FolderInfo {
+    pub folder_name: String,
+    pub created_by: Uuid,
+    pub created_by_username: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ListFoldersResponse {
+    pub folders: Vec<FolderInfo>,
+    pub total: usize,
+}
