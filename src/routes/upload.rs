@@ -1,14 +1,41 @@
-use axum::{routing::post, Router};
+use crate::auth::{check_permission, CurrentUser, StorageAction};
+use crate::{
+    dtos::UploadResponse,
+    error::AppError,
+    models::{Document, DocumentVersion},
+    state::AppState,
+};
 use axum::extract::{Multipart, State};
 use axum::Json;
-use crate::{state::AppState, dtos::UploadResponse, error::AppError, models::{Document, DocumentVersion}};
-use crate::auth::{CurrentUser, check_permission, StorageAction};
-use uuid::Uuid;
-use serde_json::{Value,json};
+use axum::{routing::post, Router};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::{collections::HashMap, fs};
-use tracing::{info, debug, warn};
+use tracing::{debug, info, warn};
+use uuid::Uuid;
 
-use crate::audit::{log_upload};
+use crate::audit::log_upload;
+
+#[derive(Serialize, Deserialize)]
+struct FolderMetadata {
+    folder_name: String,
+    created_by: Uuid,
+    created_by_username: String,
+    created_at: DateTime<Utc>,
+}
+
+fn sanitize_folder_name(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+}
 
 pub fn routes() -> Router<AppState> {
     Router::new().route("/upload", post(upload_file))
@@ -50,7 +77,7 @@ async fn upload_file(
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, AppError> {
     info!(user_id = %current_user.id, username = %current_user.username, role = %current_user.role, "File upload request received");
-    
+
     // Check if user has write permission
     check_permission(&current_user, StorageAction::Write)?;
 
@@ -113,7 +140,9 @@ async fn upload_file(
                             }
                         }
                         _ => {
-                            return Err(AppError::BadRequest("Invalid metadata JSON; expected an object of string values"));
+                            return Err(AppError::BadRequest(
+                                "Invalid metadata JSON; expected an object of string values",
+                            ));
                         }
                     }
                 }
@@ -188,7 +217,7 @@ async fn upload_file(
     let checksum = None::<String>;
 
     debug!("Starting database transaction");
-    let mut tx = state.pool.begin().await?; 
+    let mut tx = state.pool.begin().await?;
 
     // Create new document or append to existing
     let (document, next_version_number) = if let Some(doc_id) = document_id {
@@ -214,15 +243,16 @@ async fn upload_file(
         };
 
         // Next version number
-        let next_version_opt: Option<i32> = sqlx::query_scalar::<_, Option<i32>>(r#"
+        let next_version_opt: Option<i32> = sqlx::query_scalar::<_, Option<i32>>(
+            r#"
                 SELECT MAX(version_number) + 1
                 FROM document_versions
                 WHERE document_id = $1
                 "#,
-            )
-            .bind(doc_id)
-            .fetch_one(&mut *tx)
-            .await?; // DB error -> AppError::Db
+        )
+        .bind(doc_id)
+        .fetch_one(&mut *tx)
+        .await?; // DB error -> AppError::Db
 
         let next_version = next_version_opt.unwrap_or(1);
 
@@ -240,7 +270,8 @@ async fn upload_file(
             }
         };
 
-        let doc = sqlx::query_as::<_, Document>(r#"
+        let doc = sqlx::query_as::<_, Document>(
+            r#"
             INSERT INTO documents (title, category)
             VALUES ($1, $2)
             RETURNING id, title, category, created_at, updated_at,deleted_at
@@ -261,7 +292,7 @@ async fn upload_file(
     // - None or empty         -> no folder link
     //
 
-    // for old storage 
+    // for old storage
     // let folder_name_opt: Option<&str> = category
     //     .as_deref()
     //     .map(str::trim)
@@ -316,11 +347,48 @@ async fn upload_file(
 
     let folder_name = category.map(|s| s.to_string());
 
-    let stored_path = build_storage_path_with_folder(
-        folder_name,
-        document.id,
-        next_version_number,
-    );
+    // If category is provided, ensure folder metadata exists
+    if let Some(ref cat) = folder_name {
+        let sanitized_name = sanitize_folder_name(cat);
+        let metadata_path = format!("{}/.folder_metadata.json", sanitized_name);
+
+        // Check if metadata file already exists
+        let metadata_exists = state.storage.stat(&metadata_path).await.is_ok();
+
+        if !metadata_exists {
+            // Create folder metadata
+            let folder_metadata = FolderMetadata {
+                folder_name: sanitized_name.clone(),
+                created_by: current_user.id,
+                created_by_username: current_user.username.clone(),
+                created_at: Utc::now(),
+            };
+
+            let metadata_json = serde_json::to_string(&folder_metadata).map_err(|e| {
+                AppError::Other(anyhow::anyhow!(
+                    "Failed to serialize folder metadata: {}",
+                    e
+                ))
+            })?;
+
+            let metadata_bytes = metadata_json.into_bytes();
+
+            if let Err(e) = state.storage.write(&metadata_path, metadata_bytes).await {
+                warn!(
+                    error = ?e,
+                    folder_name = %sanitized_name,
+                    "Failed to create folder metadata during upload, continuing anyway"
+                );
+            } else {
+                debug!(
+                    folder_name = %sanitized_name,
+                    "Created folder metadata during file upload"
+                );
+            }
+        }
+    }
+
+    let stored_path = build_storage_path_with_folder(folder_name, document.id, next_version_number);
 
     info!(
         file_name = %file_name,
@@ -357,31 +425,30 @@ async fn upload_file(
 
     // Insert metadata entries (optional). Upsert on (document_id, key)
     for (meta_key, meta_value) in metadata.into_iter() {
-        sqlx::query(r#"
+        sqlx::query(
+            r#"
                 INSERT INTO document_metadata (document_id, key, value)
                 VALUES ($1, $2, $3)
                 ON CONFLICT (document_id, key)
                 DO UPDATE SET value = EXCLUDED.value
                 "#,
-            )
-            .bind(document.id)
-            .bind(&meta_key)
-            .bind(&meta_value)
-            .execute(&mut *tx)
-            .await
-            .map_err(|err| {
-                warn!(error = ?err, meta_key = %meta_key, "Failed to insert metadata");
-                AppError::Db(err)
-            })?;
+        )
+        .bind(document.id)
+        .bind(&meta_key)
+        .bind(&meta_value)
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| {
+            warn!(error = ?err, meta_key = %meta_key, "Failed to insert metadata");
+            AppError::Db(err)
+        })?;
     }
 
     debug!("Committing database transaction");
-    tx.commit()
-        .await
-        .map_err(|err| {
-            warn!(error = ?err, "Failed to commit transaction");
-            AppError::Db(err)
-        })?;
+    tx.commit().await.map_err(|err| {
+        warn!(error = ?err, "Failed to commit transaction");
+        AppError::Db(err)
+    })?;
 
     if let Err(e) = log_upload(
         &state.pool,
